@@ -69,6 +69,11 @@ let
         runHook postInstall
       '';
 
+      # Newer nixpkgs assembles nodejs_24 from nodejs-slim_24 plus
+      # nodejs-slim_24.npm. The binary release already contains npm, so the
+      # separate npm part is an empty placeholder.
+      passthru.npm = final.emptyDirectory;
+
       meta = {
         description = "Node.js ${version} (official prebuilt binary)";
         mainProgram = "node";
@@ -83,13 +88,17 @@ let
       orig =
         prev.${name}
           or (throw "nodejs overlay: ${name} does not exist in this nixpkgs revision; cannot bump to ${spec.version}");
+      # Compare against nodejs-slim_24, which is always built directly. In
+      # newer nixpkgs, nodejs_24 takes its version from nodejs-slim_24 as
+      # already replaced by this overlay, so its own version can't be trusted.
+      nixpkgsVersion = (prev.nodejs-slim_24 or orig).version;
     in
     # Never downgrade: once nixpkgs has caught up (or passed) this version,
     # the overlay becomes a no-op and prints a reminder to remove it.
-    if lib.versionOlder orig.version spec.version then
+    if lib.versionOlder nixpkgsVersion spec.version then
       nodeBinary spec
     else
-      lib.warn "nodejs overlay: nixpkgs ${name} is already ${orig.version} (>= ${spec.version}); remove this override" orig;
+      lib.warn "nodejs overlay: nixpkgs ${name} is already ${nixpkgsVersion} (>= ${spec.version}); remove this override" orig;
 in
 # Each package is only evaluated if the build uses it.
 builtins.mapAttrs bump targets

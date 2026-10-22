@@ -1,8 +1,9 @@
 # Node.js version-bump overlay, used by Nixpacks/Coolify via `nixOverlays`.
 #
-# For each package: put the new version and the SHA-256 of
-# node-v<version>.tar.xz from https://nodejs.org/dist/v<version>/SHASUMS256.txt
-# (hex is fine, fetchurl accepts it as-is).
+# Installs the official prebuilt binary from nodejs.org instead of compiling
+# from source. For each platform you deploy on, put the SHA-256 of
+# node-v<version>-linux-<arch>.tar.xz from
+# https://nodejs.org/dist/v<version>/SHASUMS256.txt (hex is fine).
 final: prev:
 
 let
@@ -12,65 +13,78 @@ let
 
   node24 = {
     version = "24.22.1";
-    sha256 = "4f5379796280cdaeb0c2f358fd04b6a16cc4fb7dfa83b5a8c91a9d963b435231";
-    dropPatches = [
-      "configure-emulator"
-    ];
-    # Libraries to build from Node's bundled copy (deps/ in the source)
-    # instead of nixpkgs' shared one, when nixpkgs' version is too old.
-    # 24.22.1 needs a newer libuv than the pinned nixpkgs has.
-    bundledDeps = [
-      "libuv"
-    ];
+    sha256 = {
+      x86_64-linux = "6c172a9ab6718f7b801fb5a7bd486af2ee5e32758086a04b84fcce2aa77095e6";
+    };
   };
 
-  # nodejs_24 and nodejs-slim_24 (without npm) are separate packages built
-  # from the same source, so both are bumped.
+  # nodejs_24 and nodejs-slim_24 (without npm) both point to the binary
+  # release, which includes npm and corepack.
   targets = {
     nodejs_24 = node24;
     nodejs-slim_24 = node24;
   };
 
+  archOf = {
+    x86_64-linux = "x64";
+    aarch64-linux = "arm64";
+  };
+
+  nodeBinary =
+    { version, sha256 }:
+    let
+      system = final.stdenv.hostPlatform.system;
+      arch = archOf.${system} or (throw "nodejs overlay: no Node.js binary for ${system}");
+      hash =
+        sha256.${system} or (throw "nodejs overlay: no sha256 for ${system} in the overlay; add it from SHASUMS256.txt");
+    in
+    final.stdenv.mkDerivation {
+      pname = "nodejs";
+      inherit version;
+
+      src = final.fetchurl {
+        url = "https://nodejs.org/dist/v${version}/node-v${version}-linux-${arch}.tar.xz";
+        sha256 = hash;
+      };
+
+      # Points the binary at Nix's dynamic loader, libstdc++ and libgcc_s.
+      nativeBuildInputs = [ final.autoPatchelfHook ];
+      buildInputs = [ final.stdenv.cc.cc.lib ];
+
+      dontConfigure = true;
+      dontBuild = true;
+      # npm, npx and corepack use `#!/usr/bin/env node`, which works as-is
+      # in the Nixpacks image once node is on PATH.
+      dontPatchShebangs = true;
+
+      installPhase = ''
+        runHook preInstall
+        mkdir -p $out
+        cp -r bin include lib share $out/
+        runHook postInstall
+      '';
+
+      meta = {
+        description = "Node.js ${version} (official prebuilt binary)";
+        mainProgram = "node";
+        platforms = builtins.attrNames sha256;
+      };
+    };
+
   bump =
     name:
-    {
-      version,
-      sha256,
-      dropPatches ? [ ],
-      bundledDeps ? [ ],
-    }:
+    spec:
     let
       orig =
         prev.${name}
-          or (throw "nodejs overlay: ${name} does not exist in this nixpkgs revision; cannot bump to ${version}");
+          or (throw "nodejs overlay: ${name} does not exist in this nixpkgs revision; cannot bump to ${spec.version}");
     in
     # Never downgrade: once nixpkgs has caught up (or passed) this version,
     # the overlay becomes a no-op and prints a reminder to remove it.
-    if lib.versionOlder orig.version version then
-      orig.overrideAttrs (old: {
-        inherit version;
-        src = final.fetchurl {
-          url = "https://nodejs.org/dist/v${version}/node-v${version}.tar.xz";
-          inherit sha256;
-        };
-        patches = builtins.filter (
-          patch: !(builtins.any (drop: lib.hasInfix drop (toString patch)) dropPatches)
-        ) (old.patches or [ ]);
-        # Drop --shared-<dep>, --shared-<dep>-includes=… and
-        # --shared-<dep>-libpath=…, so configure uses the bundled copy.
-        configureFlags = builtins.filter (
-          flag:
-          !(builtins.any (
-            dep: lib.hasPrefix "--shared-${dep}" (toString flag)
-          ) bundledDeps)
-        ) (old.configureFlags or [ ]);
-        # Keep nixpkgs' headers of those libraries out of the include path.
-        buildInputs = builtins.filter (
-          input: !(builtins.elem (input.pname or "") bundledDeps)
-        ) (old.buildInputs or [ ]);
-      })
+    if lib.versionOlder orig.version spec.version then
+      nodeBinary spec
     else
-      lib.warn "nodejs overlay: nixpkgs ${name} is already ${orig.version} (>= ${version}); remove this override" orig;
+      lib.warn "nodejs overlay: nixpkgs ${name} is already ${orig.version} (>= ${spec.version}); remove this override" orig;
 in
 # Each package is only evaluated if the build uses it.
 builtins.mapAttrs bump targets

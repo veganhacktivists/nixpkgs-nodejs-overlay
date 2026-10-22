@@ -13,6 +13,9 @@ let
   node24 = {
     version = "24.22.1";
     sha256 = "4f5379796280cdaeb0c2f358fd04b6a16cc4fb7dfa83b5a8c91a9d963b435231";
+    dropPatches = [
+      "configure-emulator"
+    ];
   };
 
   # nodejs_24 and nodejs-slim_24 (without npm) are separate packages built

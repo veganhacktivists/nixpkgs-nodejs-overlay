@@ -24,7 +24,11 @@ let
 
   bump =
     name:
-    { version, sha256 }:
+    {
+      version,
+      sha256,
+      dropPatches ? [ ],
+    }:
     let
       orig =
         prev.${name}
@@ -39,6 +43,9 @@ let
           url = "https://nodejs.org/dist/v${version}/node-v${version}.tar.xz";
           inherit sha256;
         };
+        patches = builtins.filter (
+          patch: !(builtins.any (drop: lib.hasInfix drop (toString patch)) dropPatches)
+        ) (old.patches or [ ]);
       })
     else
       lib.warn "nodejs overlay: nixpkgs ${name} is already ${orig.version} (>= ${version}); remove this override" orig;

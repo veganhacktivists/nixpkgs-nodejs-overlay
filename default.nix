@@ -16,6 +16,12 @@ let
     dropPatches = [
       "configure-emulator"
     ];
+    # Libraries to build from Node's bundled copy (deps/ in the source)
+    # instead of nixpkgs' shared one, when nixpkgs' version is too old.
+    # 24.22.1 needs a newer libuv than the pinned nixpkgs has.
+    bundledDeps = [
+      "libuv"
+    ];
   };
 
   # nodejs_24 and nodejs-slim_24 (without npm) are separate packages built
@@ -31,6 +37,7 @@ let
       version,
       sha256,
       dropPatches ? [ ],
+      bundledDeps ? [ ],
     }:
     let
       orig =
@@ -49,6 +56,18 @@ let
         patches = builtins.filter (
           patch: !(builtins.any (drop: lib.hasInfix drop (toString patch)) dropPatches)
         ) (old.patches or [ ]);
+        # Drop --shared-<dep>, --shared-<dep>-includes=… and
+        # --shared-<dep>-libpath=…, so configure uses the bundled copy.
+        configureFlags = builtins.filter (
+          flag:
+          !(builtins.any (
+            dep: lib.hasPrefix "--shared-${dep}" (toString flag)
+          ) bundledDeps)
+        ) (old.configureFlags or [ ]);
+        # Keep nixpkgs' headers of those libraries out of the include path.
+        buildInputs = builtins.filter (
+          input: !(builtins.elem (input.pname or "") bundledDeps)
+        ) (old.buildInputs or [ ]);
       })
     else
       lib.warn "nodejs overlay: nixpkgs ${name} is already ${orig.version} (>= ${version}); remove this override" orig;

@@ -1,7 +1,7 @@
 # Node.js version-bump overlay, used by Nixpacks/Coolify via `nixOverlays`.
 #
-# Installs the official prebuilt binary from nodejs.org instead of compiling
-# from source. For each platform you deploy on, put the SHA-256 of
+# Installs the official prebuilt binary from nodejs.org, unmodified, instead
+# of compiling from source. For each platform you deploy on, put the SHA-256 of
 # node-v<version>-linux-<arch>.tar.xz from
 # https://nodejs.org/dist/v<version>/SHASUMS256.txt (hex is fine).
 final: prev:
@@ -15,6 +15,7 @@ let
     version = "24.22.1";
     sha256 = {
       x86_64-linux = "6c172a9ab6718f7b801fb5a7bd486af2ee5e32758086a04b84fcce2aa77095e6";
+      # aarch64-linux = "<sha256 of node-v24.22.1-linux-arm64.tar.xz>";
     };
   };
 
@@ -47,12 +48,16 @@ let
         sha256 = hash;
       };
 
-      # Points the binary at Nix's dynamic loader, libstdc++ and libgcc_s.
-      nativeBuildInputs = [ final.autoPatchelfHook ];
-      buildInputs = [ final.stdenv.cc.cc.lib ];
-
+      # Leave the binary exactly as published: it uses the image's own
+      # dynamic loader and system libraries (glibc, libstdc++), so native
+      # modules such as Prisma's query engine find system libraries like
+      # libssl.so.3 the same way they would with Node installed on Ubuntu.
+      # This means the binary runs on regular Linux (the Nixpacks image) but
+      # not on NixOS.
       dontConfigure = true;
       dontBuild = true;
+      dontPatchELF = true;
+      dontStrip = true;
       # npm, npx and corepack use `#!/usr/bin/env node`, which works as-is
       # in the Nixpacks image once node is on PATH.
       dontPatchShebangs = true;

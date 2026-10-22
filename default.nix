@@ -12,7 +12,7 @@ let
 
   node24 = {
     version = "24.22.1";
-    sha256 = "6c172a9ab6718f7b801fb5a7bd486af2ee5e32758086a04b84fcce2aa77095e6";
+    sha256 = "4f5379796280cdaeb0c2f358fd04b6a16cc4fb7dfa83b5a8c91a9d963b435231";
   };
 
   # nodejs_24 and nodejs-slim_24 (without npm) are separate packages built
